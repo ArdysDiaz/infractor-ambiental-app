@@ -1,0 +1,26 @@
+/* src/index.css - Tailwind v3 (base / components / utilities) */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Estilos utilitarios personalizados */
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply font-bold py-2 px-4 rounded-lg transition duration-200 inline-flex items-center justify-center;
+  }
+  .btn-primary {
+    @apply bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg;
+  }
+  .btn-danger {
+    @apply bg-red-500 hover:bg-red-600 text-white shadow-lg;
+  }
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-6;
+  }
+}
