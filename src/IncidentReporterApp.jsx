@@ -51,6 +51,39 @@ export default function IncidentReporterApp() {
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
 
+
+  // Tema oscuro automático
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+    const applyTheme = (event) => {
+      const isDark = event ? event.matches : mediaQuery.matches;
+      if (isDark) {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    };
+
+    // Ejecutar una vez al cargar
+    applyTheme(mediaQuery);
+
+    // Compatibilidad: algunos navegadores usan addEventListener, otros addListener
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener("change", applyTheme);
+    } else if (mediaQuery.addListener) {
+      mediaQuery.addListener(applyTheme);
+    }
+
+    return () => {
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener("change", applyTheme);
+      } else if (mediaQuery.removeListener) {
+        mediaQuery.removeListener(applyTheme);
+      }
+    };
+  }, []);
+
   const handleInstall = async () => {
     if (deferredPrompt) {
       deferredPrompt.prompt();
@@ -259,43 +292,47 @@ export default function IncidentReporterApp() {
   // UI
   if (!isAuthReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <p className="text-lg font-semibold">Cargando…</p>
+      <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900">
+        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">Cargando…</p>
       </div>
     )
   }
 
   if (view === "login") {
     return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-100 p-4">
-        <div className="card w-full max-w-sm">
-          <h1 className="text-2xl font-bold text-center mb-4">Acceso Admin</h1>
-          {error && <p className="text-red-600 text-sm mb-3 text-center">{error}</p>}
+      <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900 p-4">
+        <div className="card w-full max-w-sm bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6">
+          <h1 className="text-2xl font-bold text-center mb-4 text-gray-900 dark:text-gray-100">
+            Acceso Admin
+          </h1>
+          {error && (
+            <p className="text-red-600 dark:text-red-400 text-sm mb-3 text-center">{error}</p>
+          )}
           <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
-              <label className="block text-sm mb-1">Usuario</label>
+              <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Usuario</label>
               <input
                 name="username"
                 type="email"
                 required
-                className="w-full border rounded-lg p-2"
+                className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
                 placeholder="admin@example.com"
               />
             </div>
             <div>
-              <label className="block text-sm mb-1">Contraseña</label>
+              <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Contraseña</label>
               <input
                 name="password"
                 type="password"
                 required
-                className="w-full border rounded-lg p-2"
+                className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
                 placeholder="password123"
               />
             </div>
             <button className="btn btn-primary w-full">Ingresar</button>
           </form>
           <button
-            className="mt-4 text-sm text-blue-600 underline block mx-auto"
+            className="mt-4 text-sm text-blue-600 dark:text-blue-400 underline block mx-auto"
             onClick={() => setView("user")}
           >
             Volver
@@ -307,12 +344,14 @@ export default function IncidentReporterApp() {
 
   if (view === "admin" && isAdmin) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 md:p-8">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-4 md:p-8">
         <div className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl md:text-3xl font-extrabold">Dashboard de Reportes</h1>
+          <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 dark:text-gray-100">
+            Dashboard de Reportes
+          </h1>
           <div className="flex items-center gap-2">
             <select
-              className="border rounded-lg p-2"
+              className="border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
@@ -334,28 +373,28 @@ export default function IncidentReporterApp() {
         </div>
 
         {filteredReports.length === 0 ? (
-          <p className="text-gray-500">No hay reportes.</p>
+          <p className="text-gray-500 dark:text-gray-400">No hay reportes.</p>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {filteredReports.map((r) => (
-              <div key={r.id} className="card flex flex-col">
+              <div key={r.id} className="card flex flex-col bg-white dark:bg-gray-800 shadow-md rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <span
                     className={`text-xs font-bold px-3 py-1 rounded-full ${
                       r.status === "Solucionado"
-                        ? "bg-green-200 text-green-800"
+                        ? "bg-green-200 text-green-800 dark:bg-green-800 dark:text-green-100"
                         : r.status === "Visto"
-                        ? "bg-blue-200 text-blue-800"
-                        : "bg-yellow-200 text-yellow-800"
+                        ? "bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-100"
+                        : "bg-yellow-200 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100"
                     }`}
                   >
                     {r.status}
                   </span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {new Date(r.timestamp).toLocaleString()}
                   </span>
                 </div>
-                <p className="text-sm text-gray-700 mb-3">
+                <p className="text-sm text-gray-700 dark:text-gray-200 mb-3">
                   {r.observations || "Sin observaciones"}
                 </p>
                 <div className="flex flex-wrap gap-2 mb-3">
@@ -371,19 +410,17 @@ export default function IncidentReporterApp() {
                   )}
                 </div>
                 {r.locationText && (
-                    <p className="text-sm text-gray-600">
-                        📍 {r.locationText}
-                    </p>
-                    )}
+                  <p className="text-sm text-gray-600 dark:text-gray-300">📍 {r.locationText}</p>
+                )}
 
-                    {r.infractor && (
-                    <p className="text-sm text-red-600">
-                        🚨 Infractor: {r.infractor}
-                    </p>
+                {r.infractor && (
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    🚨 Infractor: {r.infractor}
+                  </p>
                 )}
                 {r.latitude && r.longitude && (
                   <a
-                    className="text-sm text-blue-600 underline mb-4"
+                    className="text-sm text-blue-600 dark:text-blue-400 underline mb-4"
                     target="_blank"
                     rel="noreferrer"
                     href={`https://www.google.com/maps/search/?api=1&query=${r.latitude},${r.longitude}`}
@@ -415,16 +452,22 @@ export default function IncidentReporterApp() {
 
   // Vista usuario
   return (
-    <div className="min-h-screen bg-gray-100 p-4 flex flex-col items-center">
-      <div className="card w-full max-w-lg">
-        <h1 className="text-3xl font-extrabold text-center mb-2">Reportar Incidente</h1>
-        <p className="text-center text-gray-600 mb-4">Envía tu reporte de forma anónima.</p>
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 flex flex-col items-center">
+      <div className="card w-full max-w-lg bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6">
+        <h1 className="text-3xl font-extrabold text-center mb-2 text-gray-900 dark:text-gray-100">
+          Reportar Incidente
+        </h1>
+        <p className="text-center text-gray-600 dark:text-gray-300 mb-4">
+          Envía tu reporte de forma anónima.
+        </p>
 
         {error && (
-          <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg">{error}</div>
+          <div className="p-3 mb-4 text-sm text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900 rounded-lg">
+            {error}
+          </div>
         )}
         {message && (
-          <div className="p-3 mb-4 text-sm text-green-700 bg-green-100 rounded-lg">
+          <div className="p-3 mb-4 text-sm text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900 rounded-lg">
             {message}
           </div>
         )}
@@ -432,7 +475,7 @@ export default function IncidentReporterApp() {
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-lg font-medium text-gray-700 dark:text-gray-300">
-                Subir Foto (1 a 3 fotos)
+              Subir Foto (1 a 3 fotos)
             </label>
             <input
               type="file"
@@ -440,14 +483,14 @@ export default function IncidentReporterApp() {
               accept="image/*"
               multiple
               onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+              className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 dark:file:bg-violet-900 file:text-violet-700 dark:file:text-violet-300 hover:file:bg-violet-100 dark:hover:file:bg-violet-800"
             />
 
             <div className="flex flex-wrap gap-2 mt-2">
               {reportData.photos.map((f, i) => (
                 <div
                   key={i}
-                  className="flex items-center gap-2 bg-gray-200 px-3 py-1 rounded-full text-xs"
+                  className="flex items-center gap-2 bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-xs text-gray-800 dark:text-gray-100"
                 >
                   <span>{f.name}</span>
                   <button
@@ -458,57 +501,63 @@ export default function IncidentReporterApp() {
                         photos: p.photos.filter((_, idx) => idx !== i)
                       }))
                     }
-                    className="text-red-500 hover:text-red-700"
+                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                   >
                     ✕
                   </button>
                 </div>
               ))}
             </div>
-
           </div>
 
           <div>
             <label className="block text-lg font-medium text-gray-700 dark:text-gray-300">
-                Subir Video (opcional)
+              Subir Video (opcional)
             </label>
             <input
               type="file"
               name="video"
               accept="video/*"
               onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+              className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 dark:file:bg-violet-900 file:text-violet-700 dark:file:text-violet-300 hover:file:bg-violet-100 dark:hover:file:bg-violet-800"
             />
             {reportData.video && (
-              <div className="mt-2 text-xs text-gray-600">{reportData.video.name}</div>
+              <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
+                {reportData.video.name}
+              </div>
             )}
           </div>
+
           {/* Ubicación manual */}
           <div>
-            <label className="block font-medium mb-1">Ubicación (Barrio / Sector / Lugar)</label>
+            <label className="block font-medium mb-1 text-gray-700 dark:text-gray-300">
+              Ubicación (Barrio / Sector / Lugar)
+            </label>
             <input
-                type="text"
-                value={reportData.locationText}
-                onChange={(e) => setReportData((p) => ({ ...p, locationText: e.target.value }))}
-                placeholder="Ej. Barrio San José"
-                className="w-full border rounded-lg p-2"
+              type="text"
+              value={reportData.locationText}
+              onChange={(e) => setReportData((p) => ({ ...p, locationText: e.target.value }))}
+              placeholder="Ej. Barrio San José"
+              className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
             />
-            </div>
+          </div>
 
-            {/* Infractor opcional */}
-            <div>
-            <label className="block font-medium mb-1">Infractor (opcional)</label>
+          {/* Infractor opcional */}
+          <div>
+            <label className="block font-medium mb-1 text-gray-700 dark:text-gray-300">
+              Infractor (opcional)
+            </label>
             <input
-                type="text"
-                value={reportData.infractor}
-                onChange={(e) => setReportData((p) => ({ ...p, infractor: e.target.value }))}
-                placeholder="Persona o entidad responsable"
-                className="w-full border rounded-lg p-2"
+              type="text"
+              value={reportData.infractor}
+              onChange={(e) => setReportData((p) => ({ ...p, infractor: e.target.value }))}
+              placeholder="Persona o entidad responsable"
+              className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
 
           <div>
-            <label className="block font-medium mb-1">Ubicación</label>
+            <label className="block font-medium mb-1 text-gray-700 dark:text-gray-300">Ubicación</label>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -519,7 +568,7 @@ export default function IncidentReporterApp() {
                 {isLocationLoading ? "Obteniendo…" : "Obtener ubicación"}
               </button>
               {reportData.latitude && reportData.longitude && (
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-gray-600 dark:text-gray-300">
                   Lat: {reportData.latitude.toFixed(4)} · Lon: {reportData.longitude.toFixed(4)}
                 </span>
               )}
@@ -527,7 +576,9 @@ export default function IncidentReporterApp() {
           </div>
 
           <div>
-            <label className="block font-medium mb-1">Observaciones</label>
+            <label className="block font-medium mb-1 text-gray-700 dark:text-gray-300">
+              Observaciones
+            </label>
             <textarea
               rows={4}
               value={reportData.observations}
@@ -535,7 +586,7 @@ export default function IncidentReporterApp() {
                 setReportData((p) => ({ ...p, observations: e.target.value }))
               }
               placeholder="Describe el incidente…"
-              className="w-full border rounded-lg p-2"
+              className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
 
@@ -551,7 +602,7 @@ export default function IncidentReporterApp() {
 
       <button
         onClick={() => setView("login")}
-        className="mt-4 text-sm text-blue-600 underline"
+        className="mt-4 text-sm text-blue-600 dark:text-blue-400 underline"
       >
         Acceso administrador
       </button>
@@ -565,4 +616,5 @@ export default function IncidentReporterApp() {
       )}
     </div>
   )
+
 }
