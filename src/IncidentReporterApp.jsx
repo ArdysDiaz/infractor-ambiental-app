@@ -29,6 +29,7 @@ export default function IncidentReporterApp() {
   const [isLocationLoading, setIsLocationLoading] = useState(false)
   const [reports, setReports] = useState([])
   const [filterStatus, setFilterStatus] = useState("Todos")
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
 
   const [reportData, setReportData] = useState({
     photos: [],
@@ -39,6 +40,27 @@ export default function IncidentReporterApp() {
     latitude: null,
     longitude: null
   })
+
+  useEffect(() => {
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener("beforeinstallprompt", handler);
+
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        console.log("App instalada");
+      }
+      setDeferredPrompt(null);
+    }
+  };
 
   // Autenticación anónima
   useEffect(() => {
@@ -79,24 +101,26 @@ export default function IncidentReporterApp() {
   }, [reports, filterStatus])
 
   // Ubicación
-  const handleLocationGet = () => {
-    if (!navigator.geolocation) {
-      setError("Geolocalización no disponible en este navegador.")
-      return
+  const handleLocationGet = async () => {
+    const perm = await checkPermission("geolocation");
+    if (perm === "denied") {
+      setError("No tienes permisos de ubicación habilitados. Actívalos en ajustes.");
+      return;
     }
-    setIsLocationLoading(true)
+
+    setIsLocationLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        const { latitude, longitude } = pos.coords
-        setReportData((p) => ({ ...p, latitude, longitude }))
-        setIsLocationLoading(false)
+        const { latitude, longitude } = pos.coords;
+        setReportData((p) => ({ ...p, latitude, longitude }));
+        setIsLocationLoading(false);
       },
       () => {
-        setError("No fue posible obtener tu ubicación.")
-        setIsLocationLoading(false)
+        setError("No fue posible obtener tu ubicación.");
+        setIsLocationLoading(false);
       }
-    )
-  }
+    );
+  };
 
   // Archivos
   const handleFileChange = (e) => {
@@ -174,6 +198,8 @@ export default function IncidentReporterApp() {
         photos: [],
         video: null,
         observations: "",
+        locationText: "",
+        infractor: "",
         latitude: null,
         longitude: null
       })
@@ -207,6 +233,28 @@ export default function IncidentReporterApp() {
       setError("No se pudo actualizar el estado.")
     }
   }
+
+  async function checkPermission(name) {
+    try {
+      if (!navigator.permissions) return "unknown";
+      const result = await navigator.permissions.query({ name });
+      return result.state; // "granted" | "denied" | "prompt"
+    } catch {
+      return "unknown"; // algunos navegadores no soportan todos los permisos
+    }
+  }
+
+  // async function requestCameraAccess() {
+  //   try {
+  //     const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  //     stream.getTracks().forEach((t) => t.stop()); // liberar cámara
+  //     return true;
+  //   } catch (e) {
+  //     setError("No tienes permisos de cámara habilitados.");
+  //     return false;
+  //   }
+  // }
+
 
   // UI
   if (!isAuthReady) {
@@ -390,21 +438,34 @@ export default function IncidentReporterApp() {
               type="file"
               name="photos"
               accept="image/*"
-              capture="environment"  // 👈 permite tomar foto con cámara
               multiple
               onChange={handleFileChange}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
             />
+
             <div className="flex flex-wrap gap-2 mt-2">
               {reportData.photos.map((f, i) => (
-                <span
+                <div
                   key={i}
-                  className="inline-block px-3 py-1 text-xs font-semibold bg-gray-200 rounded-full"
+                  className="flex items-center gap-2 bg-gray-200 px-3 py-1 rounded-full text-xs"
                 >
-                  {f.name}
-                </span>
+                  <span>{f.name}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setReportData((p) => ({
+                        ...p,
+                        photos: p.photos.filter((_, idx) => idx !== i)
+                      }))
+                    }
+                    className="text-red-500 hover:text-red-700"
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
             </div>
+
           </div>
 
           <div>
@@ -494,6 +555,14 @@ export default function IncidentReporterApp() {
       >
         Acceso administrador
       </button>
+      {deferredPrompt && (
+        <button
+          onClick={handleInstall}
+          className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow hover:bg-indigo-700"
+        >
+          Instalar aplicación
+        </button>
+      )}
     </div>
   )
 }
