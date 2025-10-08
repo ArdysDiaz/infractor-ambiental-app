@@ -30,6 +30,7 @@ export default function IncidentReporterApp() {
   const [reports, setReports] = useState([])
   const [filterStatus, setFilterStatus] = useState("Todos")
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   const [reportData, setReportData] = useState({
     photos: [],
@@ -41,15 +42,31 @@ export default function IncidentReporterApp() {
     longitude: null
   })
 
+  // --- Lógica PWA ---
+  const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  const isInStandaloneMode = () => 'standalone' in window.navigator && (window.navigator.standalone) || window.matchMedia('(display-mode: standalone)').matches;
+
   useEffect(() => {
+    // No mostrar prompt si ya está instalada
+    if (isInStandaloneMode()) {
+      return;
+    }
+
     const handler = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      const lastPromptTime = localStorage.getItem('pwaInstallPromptLastShown');
+      if (!lastPromptTime || (Date.now() - parseInt(lastPromptTime, 10)) > 24 * 60 * 60 * 1000) { // 24 horas
+        setShowInstallModal(true);
+      }
     };
+
     window.addEventListener("beforeinstallprompt", handler);
 
     return () => window.removeEventListener("beforeinstallprompt", handler);
   }, []);
+
+  // --- Fin Lógica PWA ---
 
 
   // Tema oscuro automático
@@ -85,6 +102,7 @@ export default function IncidentReporterApp() {
   }, []);
 
   const handleInstall = async () => {
+    setShowInstallModal(false);
     if (deferredPrompt) {
       deferredPrompt.prompt();
       const choice = await deferredPrompt.userChoice;
@@ -92,6 +110,13 @@ export default function IncidentReporterApp() {
         console.log("App instalada");
       }
       setDeferredPrompt(null);
+    }
+  };
+
+  const dismissInstall = () => {
+    if (showInstallModal) {
+      localStorage.setItem('pwaInstallPromptLastShown', Date.now().toString());
+      setShowInstallModal(false);
     }
   };
 
@@ -173,6 +198,28 @@ export default function IncidentReporterApp() {
       setReportData((p) => ({ ...p, video: files[0] }))
     }
   }
+  
+  const handleTakePhoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (reportData.photos.length >= 3) {
+      setError("Máximo 3 fotos.");
+      return;
+    }
+    setReportData((p) => ({ ...p, photos: [...p.photos, file] }));
+  };
+
+  const handleRecordVideo = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (reportData.video) {
+      setError("Solo se permite 1 video. Elimina el actual para grabar uno nuevo.");
+      return;
+    }
+    setReportData((p) => ({ ...p, video: file }));
+  };
 
   // Enviar reporte
   const handleSubmit = async (e) => {
@@ -462,6 +509,18 @@ export default function IncidentReporterApp() {
         </p>
 
         {error && (
+          <div className="p-3 mb-4 text-sm text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900 rounded-lg" role="alert">
+            {error}
+          </div>
+        )}
+        {message && (
+          <div className="p-3 mb-4 text-sm text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900 rounded-lg" role="alert">
+            {message}
+          </div>
+        )}
+
+        {/* Mantenemos la estructura original del formulario y sus mensajes */}
+        {/* {error && (
           <div className="p-3 mb-4 text-sm text-red-700 dark:text-red-400 bg-red-100 dark:bg-red-900 rounded-lg">
             {error}
           </div>
@@ -470,22 +529,36 @@ export default function IncidentReporterApp() {
           <div className="p-3 mb-4 text-sm text-green-700 dark:text-green-300 bg-green-100 dark:bg-green-900 rounded-lg">
             {message}
           </div>
-        )}
+        )} */}
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-lg font-medium text-gray-700 dark:text-gray-300">
-              Subir Foto (1 a 3 fotos)
+              Fotos del Incidente (1 a 3)
             </label>
-            <input
-              type="file"
-              name="photos"
-              accept="image/*"
-              multiple
-              onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 dark:file:bg-violet-900 file:text-violet-700 dark:file:text-violet-300 hover:file:bg-violet-100 dark:hover:file:bg-violet-800"
-            />
-
+            <div className="flex gap-2 mt-2">
+              <label className="btn btn-secondary flex-1 cursor-pointer">
+                <span>Subir Foto</span>
+                <input
+                  type="file"
+                  name="photos"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+              <label className="btn bg-blue-600 hover:bg-blue-700 text-white flex-1 cursor-pointer">
+                <span>Tomar Foto</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={handleTakePhoto}
+                  className="hidden"
+                />
+              </label>
+            </div>
             <div className="flex flex-wrap gap-2 mt-2">
               {reportData.photos.map((f, i) => (
                 <div
@@ -512,18 +585,42 @@ export default function IncidentReporterApp() {
 
           <div>
             <label className="block text-lg font-medium text-gray-700 dark:text-gray-300">
-              Subir Video (opcional)
+              Video del Incidente (opcional)
             </label>
-            <input
-              type="file"
-              name="video"
-              accept="video/*"
-              onChange={handleFileChange}
-              className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-50 dark:file:bg-violet-900 file:text-violet-700 dark:file:text-violet-300 hover:file:bg-violet-100 dark:hover:file:bg-violet-800"
-            />
+            <div className="flex gap-2 mt-2">
+              <label className="btn btn-secondary flex-1 cursor-pointer">
+                <span>Subir Video</span>
+                <input
+                  type="file"
+                  name="video"
+                  accept="video/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+              </label>
+              <label className="btn bg-blue-600 hover:bg-blue-700 text-white flex-1 cursor-pointer">
+                <span>Grabar Video</span>
+                <input
+                  type="file"
+                  accept="video/*"
+                  capture="environment"
+                  onChange={handleRecordVideo}
+                  className="hidden"
+                />
+              </label>
+            </div>
             {reportData.video && (
-              <div className="mt-2 text-xs text-gray-600 dark:text-gray-300">
-                {reportData.video.name}
+              <div className="flex flex-wrap gap-2 mt-2">
+                <div className="flex items-center gap-2 bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded-full text-xs text-gray-800 dark:text-gray-100">
+                  <span>{reportData.video.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => setReportData((p) => ({ ...p, video: null }))}
+                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -606,14 +703,32 @@ export default function IncidentReporterApp() {
       >
         Acceso administrador
       </button>
-      {deferredPrompt && (
-        <button
-          onClick={handleInstall}
-          className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg shadow hover:bg-indigo-700"
-        >
-          Instalar aplicación
-        </button>
+
+      {/* Modal de Instalación PWA */}
+      {showInstallModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full text-center">
+            <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-gray-100">Instalar Aplicación</h3>
+            <p className="text-gray-600 dark:text-gray-300 mb-4">
+              {isIos()
+                ? "Para instalar, pulsa el botón de Compartir y luego 'Añadir a pantalla de inicio'."
+                : "Añade esta aplicación a tu pantalla de inicio para un acceso rápido y sin conexión."
+              }
+            </p>
+            <div className="flex justify-center gap-4">
+              <button onClick={dismissInstall} className="btn btn-secondary">
+                Más tarde
+              </button>
+              {!isIos() && deferredPrompt && (
+                <button onClick={handleInstall} className="btn btn-primary">
+                  Instalar ahora
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
+
     </div>
   )
 
