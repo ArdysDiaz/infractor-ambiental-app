@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react"
+import { useRegisterSW } from 'virtual:pwa-register/react'
 import { auth, db, storage } from "./firebase"
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth"
 import {
@@ -18,6 +19,52 @@ const ADMIN_PASSWORD = "password123"
 
 // Estados posibles
 const STATUS = ["Pendiente", "Visto", "Solucionado"]
+
+// Componente para manejar la actualización de la PWA
+function PwaUpdater() {
+  const {
+    offlineReady: [offlineReady, setOfflineReady],
+    needRefresh: [needRefresh, setNeedRefresh],
+    updateServiceWorker,
+  } = useRegisterSW({
+    onRegistered(r) {
+      console.log('Service Worker registrado:', r)
+    },
+    onRegisterError(error) {
+      console.error('Error al registrar el Service Worker:', error)
+    },
+  })
+
+  const close = () => {
+    setOfflineReady(false)
+    setNeedRefresh(false)
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50">
+      { (offlineReady || needRefresh) &&
+        <div className="p-4 rounded-lg shadow-lg bg-gray-800 text-white flex items-center gap-4">
+          <div className="flex-grow">
+            { needRefresh
+              ? <span>¡Nueva versión disponible!</span>
+              : <span>La aplicación está lista para funcionar sin conexión.</span>
+            }
+          </div>
+          <div className="flex gap-2">
+            { needRefresh &&
+              <button className="btn btn-primary" onClick={() => updateServiceWorker(true)}>Actualizar</button>
+            }
+            <button
+              className="p-2 leading-none rounded-full hover:bg-gray-700 transition-colors"
+              aria-label="Cerrar"
+              onClick={() => close()}>✕</button>
+          </div>
+        </div>
+      }
+    </div>
+  );
+
+}
 
 export default function IncidentReporterApp() {
   const [isAuthReady, setIsAuthReady] = useState(false)
@@ -728,6 +775,9 @@ export default function IncidentReporterApp() {
           </div>
         </div>
       )}
+
+      {/* Componente para gestionar actualizaciones de la PWA */}
+      <PwaUpdater />
 
     </div>
   )
