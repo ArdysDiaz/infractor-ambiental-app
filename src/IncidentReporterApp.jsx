@@ -78,6 +78,7 @@ export default function IncidentReporterApp() {
   const [filterStatus, setFilterStatus] = useState("Todos")
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [installable, setInstallable] = useState(false);
 
   const [reportData, setReportData] = useState({
     photos: [],
@@ -94,23 +95,39 @@ export default function IncidentReporterApp() {
   const isInStandaloneMode = () => 'standalone' in window.navigator && (window.navigator.standalone) || window.matchMedia('(display-mode: standalone)').matches;
 
   useEffect(() => {
-    // No mostrar prompt si ya está instalada
     if (isInStandaloneMode()) {
       return;
     }
-
+    const oneDay = 24 * 60 * 60 * 1000;
+    
     const handler = (e) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      setInstallable(true);
+
       const lastPromptTime = localStorage.getItem('pwaInstallPromptLastShown');
-      if (!lastPromptTime || (Date.now() - parseInt(lastPromptTime, 10)) > 24 * 60 * 60 * 1000) { // 24 horas
+
+      // Lógica para mostrar el modal automáticamente solo si ha pasado el tiempo de enfriamiento.
+      // Esto es independiente de si el botón de instalación manual es visible.
+      if (!lastPromptTime || (Date.now() - parseInt(lastPromptTime, 10)) > oneDay) {
         setShowInstallModal(true);
       }
     };
-
     window.addEventListener("beforeinstallprompt", handler);
 
-    return () => window.removeEventListener("beforeinstallprompt", handler);
+    // Si no es un navegador que dispare 'beforeinstallprompt',
+    // comprobamos si es iOS para mostrar la opción de instalación manual.
+    if (isIos()) {
+      setInstallable(true);
+      const lastPromptTime = localStorage.getItem('pwaInstallPromptLastShown');
+      if (!lastPromptTime || (Date.now() - parseInt(lastPromptTime, 10)) > oneDay) {
+        setShowInstallModal(true);
+      }
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handler);
+    }
   }, []);
 
   // --- Fin Lógica PWA ---
@@ -154,18 +171,16 @@ export default function IncidentReporterApp() {
       deferredPrompt.prompt();
       const choice = await deferredPrompt.userChoice;
       if (choice.outcome === "accepted") {
-        console.log("App instalada");
+        // Opcional: Analítica para registrar la instalación exitosa.
       }
       setDeferredPrompt(null);
     }
   };
-
   const dismissInstall = () => {
-    if (showInstallModal) {
-      localStorage.setItem('pwaInstallPromptLastShown', Date.now().toString());
-      setShowInstallModal(false);
-    }
+    localStorage.setItem('pwaInstallPromptLastShown', Date.now().toString());
+    setShowInstallModal(false);
   };
+
 
   // Autenticación anónima
   useEffect(() => {
@@ -548,8 +563,21 @@ export default function IncidentReporterApp() {
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-900 p-4 flex flex-col items-center">
       <div className="card w-full max-w-lg bg-white dark:bg-gray-800 shadow-lg rounded-xl p-6">
+        {/* Prueba de logos juntos */}
+        <div className="flex justify-center items-center gap-4 mb-5 h-20">
+          <img
+            src="/icons/logotipo.png" 
+            alt="Logotipo App"
+            className="h-28 w-auto"
+          />
+          <img
+            src="/icons/logo-vertical.png"
+            alt="Logo Alcaldía"
+            className="h-20 w-auto"
+          />
+        </div>
         <h1 className="text-3xl font-extrabold text-center mb-2 text-gray-900 dark:text-gray-100">
-          Reportar Incidente
+          Reportar Infracción Ambiental
         </h1>
         <p className="text-center text-gray-600 dark:text-gray-300 mb-4">
           Envía tu reporte de forma anónima.
@@ -744,12 +772,23 @@ export default function IncidentReporterApp() {
         </form>
       </div>
 
-      <button
-        onClick={() => setView("login")}
-        className="mt-4 text-sm text-blue-600 dark:text-blue-400 underline"
-      >
-        Acceso administrador
-      </button>
+      <div className="mt-4 flex flex-col items-center gap-2">
+        {installable && !isInStandaloneMode() && (
+          <button
+            onClick={() => setShowInstallModal(true)}
+            className="btn bg-indigo-600 hover:bg-indigo-700 text-white"
+          >
+            Instalar Aplicación en el dispositivo
+          </button>
+        )}
+
+        <button
+          onClick={() => setView("login")}
+          className="text-sm text-blue-600 dark:text-blue-400 underline"
+        >
+          Acceso administrador
+        </button>
+      </div>
 
       {/* Modal de Instalación PWA */}
       {showInstallModal && (
@@ -757,16 +796,16 @@ export default function IncidentReporterApp() {
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-sm w-full text-center">
             <h3 className="text-xl font-bold mb-2 text-gray-900 dark:text-gray-100">Instalar Aplicación</h3>
             <p className="text-gray-600 dark:text-gray-300 mb-4">
-              {isIos()
-                ? "Para instalar, pulsa el botón de Compartir y luego 'Añadir a pantalla de inicio'."
-                : "Añade esta aplicación a tu pantalla de inicio para un acceso rápido y sin conexión."
+              {deferredPrompt
+                ? "Añade esta aplicación a tu pantalla de inicio para un acceso rápido y sin conexión."
+                : "Para instalar, pulsa el botón de Compartir y luego 'Añadir a pantalla de inicio'."
               }
             </p>
             <div className="flex justify-center gap-4">
               <button onClick={dismissInstall} className="btn btn-secondary">
                 Más tarde
               </button>
-              {!isIos() && deferredPrompt && (
+              {deferredPrompt && (
                 <button onClick={handleInstall} className="btn btn-primary">
                   Instalar ahora
                 </button>
