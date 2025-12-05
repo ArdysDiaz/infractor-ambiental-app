@@ -6,13 +6,13 @@
 
     // Tu objeto de configuración de Firebase
     const firebaseConfig = {
-      apiKey: "AIzaSyA_72zsdtk6lDezrgT7vrvuCz-DhTrI4Ik",
-      authDomain: "incident-reporter-app-f834d.firebaseapp.com",
-      projectId: "incident-reporter-app-f834d",
-      storageBucket: "incident-reporter-app-f834d.firebasestorage.app",
-      messagingSenderId: "1075519620193",
-      appId: "1:1075519620193:web:8bcd1e975537d680e81620",
-      measurementId: "G-KX7TPGEM8E"
+      apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+      projectId: import.meta.env.VITE_PROJECT_ID,
+      storageBucket: import.meta.env.VITE_STORAGE_BUCKET,
+      messagingSenderId: import.meta.env.VITE_MESSAGING_SENDER_ID,
+      appId: import.meta.env.VITE_APP_ID,
+      measurementId: import.meta.env.VITE_MEASUREMENT_ID
     };
 
     // Inicializa Firebase

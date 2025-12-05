@@ -1,21 +1,25 @@
-import React, { useEffect, useMemo, useState } from "react"
-import { useRegisterSW } from 'virtual:pwa-register/react'
-import { auth, db, storage } from "./firebase"
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth"
+import { onAuthStateChanged, signInAnonymously, signInWithEmailAndPassword, signOut } from "firebase/auth"
 import {
   addDoc,
   collection,
+  getDocs,
   doc,
-  onSnapshot,
   orderBy,
   query,
-  updateDoc
+  updateDoc,
+  limit,
+  startAfter,
+  where
 } from "firebase/firestore"
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
+import 'jspdf-autotable'
+import { useEffect, useMemo, useState } from "react"
+import { useRegisterSW } from 'virtual:pwa-register/react'
+import { auth, db, storage } from "./firebase"
+import { generateReportPDF } from "./generateReportPDF"
 
-// ⚠️ Solo para DEMO/PRUEBA. No uses esto en producción.
-const ADMIN_USERNAME = "admin@example.com"
-const ADMIN_PASSWORD = "password123"
+// Constante para la paginación
+const REPORTS_PER_PAGE = 9;
 
 // Estados posibles
 const STATUS = ["Pendiente", "Visto", "Solucionado"]
@@ -77,7 +81,11 @@ export default function IncidentReporterApp() {
   const [reports, setReports] = useState([])
   const [filterStatus, setFilterStatus] = useState("Todos")
   const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [lastVisible, setLastVisible] = useState(null); // Para paginación
+  const [hasMore, setHasMore] = useState(true); // Para saber si hay más reportes
+  const [isLoadingMore, setIsLoadingMore] = useState(false); // Para el botón "Cargar más"
   const [showInstallModal, setShowInstallModal] = useState(false);
+  const [generatingPdfId, setGeneratingPdfId] = useState(null);
   const [installable, setInstallable] = useState(false);
 
   const [reportData, setReportData] = useState({
@@ -184,9 +192,23 @@ export default function IncidentReporterApp() {
 
   // Autenticación anónima
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {      
       try {
-        if (!user) await signInAnonymously(auth)
+        if (user) {
+          // Si hay un usuario, verificar si es admin
+          const idTokenResult = await user.getIdTokenResult();
+          if (idTokenResult.claims.admin) {
+            setIsAdmin(true);
+            setView("admin");
+          } else {
+            // Es un usuario anónimo o un usuario normal sin rol de admin
+            setIsAdmin(false);
+          }
+        } else {
+          // Si no hay usuario, iniciar sesión anónima para los reportes
+          await signInAnonymously(auth);
+          setIsAdmin(false);
+        }
       } catch (e) {
         console.error(e)
         setError("Error de autenticación. Intenta de nuevo.")
@@ -197,27 +219,64 @@ export default function IncidentReporterApp() {
     return () => unsub()
   }, [])
 
-  // Suscripción a reportes si eres admin
+  // Carga inicial y reseteo de reportes al cambiar de filtro
   useEffect(() => {
-    if (!isAdmin) return
-    const q = query(collection(db, "reports"), orderBy("timestamp", "desc"))
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-        setReports(rows)
-      },
-      (e) => {
-        console.error(e)
-        setError("Error cargando reportes.")
+    if (isAdmin) {
+      setReports([]); // Limpiar reportes al cambiar de filtro
+      setLastVisible(null);
+      setHasMore(true);
+      loadMoreReports(true); // Cargar la primera página
+    }
+  }, [isAdmin, filterStatus]);
+
+  const loadMoreReports = async (isInitialLoad = false) => {
+    if (!hasMore || isLoadingMore) return;
+
+    setIsLoadingMore(true);
+    setError(null);
+
+    try {
+      // Construir la consulta base
+      let q;
+      const reportsRef = collection(db, "reports");
+      const constraints = [orderBy("timestamp", "desc")];
+
+      if (filterStatus !== "Todos") {
+        constraints.push(where("status", "==", filterStatus));
       }
-    )
-    return () => unsub()
-  }, [isAdmin])
+
+      if (lastVisible && !isInitialLoad) {
+        constraints.push(startAfter(lastVisible));
+      }
+
+      constraints.push(limit(REPORTS_PER_PAGE));
+
+      q = query(reportsRef, ...constraints);
+
+      const documentSnapshots = await getDocs(q);
+
+      const newReports = documentSnapshots.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const lastDoc = documentSnapshots.docs[documentSnapshots.docs.length - 1];
+
+      setReports((prevReports) => isInitialLoad ? newReports : [...prevReports, ...newReports]);
+      setLastVisible(lastDoc);
+
+      if (documentSnapshots.docs.length < REPORTS_PER_PAGE) {
+        setHasMore(false);
+      }
+
+    } catch (e) {
+      console.error("Error cargando más reportes:", e);
+      setError("No se pudieron cargar más reportes.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
 
   const filteredReports = useMemo(() => {
-    if (filterStatus === "Todos") return reports
-    return reports.filter((r) => r.status === filterStatus)
+    // El filtrado ahora se hace en la consulta a Firestore, así que solo devolvemos los reportes.
+    return reports;
   }, [reports, filterStatus])
 
   // Ubicación
@@ -353,18 +412,34 @@ export default function IncidentReporterApp() {
     }
   }
 
-  // Login admin (demo)
-  const handleAdminLogin = (e) => {
+  // Login admin con Firebase Auth
+  const handleAdminLogin = async (e) => {
     e.preventDefault()
+    setError(null);
     const username = e.target.username.value
     const password = e.target.password.value
-    if (username === ADMIN_USERNAME && password === ADMIN_PASSWORD) {
-      setIsAdmin(true)
-      setView("admin")
-      setError(null)
-    } else {
-      setError("Credenciales de administrador incorrectas.")
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, username, password);
+      const idTokenResult = await userCredential.user.getIdTokenResult();
+      
+      // Verificar si el usuario tiene el claim de admin
+      if (idTokenResult.claims.admin) {
+        setIsAdmin(true);
+        setView("admin");
+      } else {
+        // Si el usuario es válido pero no es admin, cerramos su sesión para evitar confusiones
+        await signOut(auth);
+        setError("No tienes permisos de administrador.");
+      }
+    } catch (error) {
+      console.error("Error en login de admin:", error.code);
+      setError("Credenciales de administrador incorrectas.");
     }
+  };
+  const handleAdminLogout = async () => {
+    await signOut(auth); // Cierra la sesión del admin
+    setIsAdmin(false);
+    setView("user"); // Vuelve a la vista de usuario (que iniciará sesión anónima)
   }
 
   const handleStatusChange = async (id, newStatus) => {
@@ -375,6 +450,20 @@ export default function IncidentReporterApp() {
       setError("No se pudo actualizar el estado.")
     }
   }
+
+  const handleGeneratePdfClick = async (report) => {
+    if (generatingPdfId) return; // Evitar múltiples generaciones a la vez
+    setGeneratingPdfId(report.id);
+    try {
+      await generateReportPDF(report);
+    } catch (e) {
+      console.error("Error al generar el PDF:", e);
+      setError("Ocurrió un error al generar el PDF. Revisa la consola para más detalles.");
+    } finally {
+      setGeneratingPdfId(null); // Restablecer el estado
+    }
+  };
+
 
   async function checkPermission(name) {
     try {
@@ -460,6 +549,10 @@ export default function IncidentReporterApp() {
           </h1>
           <div className="flex items-center gap-2">
             <select
+              // Futuro: Aquí se podría añadir un input de búsqueda
+              // <input type="search" placeholder="Buscar por ID, lugar..."
+              //   className="border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
+              // />
               className="border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
@@ -471,8 +564,7 @@ export default function IncidentReporterApp() {
             </select>
             <button
               onClick={() => {
-                setIsAdmin(false)
-                setView("login")
+                handleAdminLogout();
               }}
               className="btn btn-danger"
             >
@@ -509,7 +601,7 @@ export default function IncidentReporterApp() {
                 <div className="flex flex-wrap gap-2 mb-3">
                   {(r.photos || []).map((url, i) => (
                     <a key={i} href={url} target="_blank" rel="noreferrer">
-                      <img className="w-20 h-20 object-cover rounded" src={url} />
+                      <img className="w-20 h-20 object-cover rounded" src={url} loading="lazy" alt={`Evidencia ${i+1}`} />
                     </a>
                   ))}
                   {r.video && (
@@ -537,7 +629,7 @@ export default function IncidentReporterApp() {
                     Ver en mapa
                   </a>
                 )}
-                <div className="mt-auto flex gap-2">
+                <div className="mt-auto flex flex-wrap gap-2">
                   <button
                     onClick={() => handleStatusChange(r.id, "Visto")}
                     className="btn btn-primary flex-1"
@@ -550,9 +642,30 @@ export default function IncidentReporterApp() {
                   >
                     Marcar solucionado
                   </button>
+                  <button
+                    onClick={() => handleGeneratePdfClick(r)}
+                    disabled={generatingPdfId === r.id}
+                    className="btn bg-purple-600 hover:bg-purple-700 text-white w-full mt-2 disabled:opacity-50 disabled:cursor-wait"
+                  >
+                    {generatingPdfId === r.id
+                      ? "Generando..."
+                      : "Generar PDF"}
+                  </button>
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {hasMore && (
+          <div className="flex justify-center mt-8">
+            <button
+              onClick={() => loadMoreReports()}
+              disabled={isLoadingMore}
+              className="btn btn-secondary disabled:opacity-50"
+            >
+              {isLoadingMore ? "Cargando..." : "Cargar más"}
+            </button>
           </div>
         )}
       </div>
