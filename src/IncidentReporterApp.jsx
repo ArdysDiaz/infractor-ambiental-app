@@ -65,9 +65,14 @@ function PwaUpdater() {
               <button className="btn btn-primary" onClick={() => updateServiceWorker(true)}>Actualizar</button>
             }
             <button
-              className="p-2 leading-none rounded-full hover:bg-gray-700 transition-colors"
+              className="p-2 leading-none rounded-full hover:bg-gray-700 transition-colors flex items-center justify-center text-white"
               aria-label="Cerrar"
-              onClick={() => close()}>�S"</button>
+              onClick={() => close()}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       }
@@ -93,6 +98,60 @@ export default function IncidentReporterApp() {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [generatingPdfId, setGeneratingPdfId] = useState(null);
   const [installable, setInstallable] = useState(false);
+
+  // --- Modal / Visor de Fotos (Lightbox) ---
+  const [lightbox, setLightbox] = useState({
+    isOpen: false,
+    photos: [],
+    currentIndex: 0,
+    title: ""
+  });
+
+  const openLightbox = (photos, initialIndex = 0, title = "") => {
+    setLightbox({
+      isOpen: true,
+      photos: Array.isArray(photos) ? photos : [],
+      currentIndex: initialIndex,
+      title
+    });
+  };
+
+  const closeLightbox = () => {
+    setLightbox((prev) => ({ ...prev, isOpen: false }));
+  };
+
+  const nextPhoto = () => {
+    setLightbox((prev) => {
+      if (!prev.photos.length) return prev;
+      return {
+        ...prev,
+        currentIndex: (prev.currentIndex + 1) % prev.photos.length
+      };
+    });
+  };
+
+  const prevPhoto = () => {
+    setLightbox((prev) => {
+      if (!prev.photos.length) return prev;
+      return {
+        ...prev,
+        currentIndex: (prev.currentIndex - 1 + prev.photos.length) % prev.photos.length
+      };
+    });
+  };
+
+  useEffect(() => {
+    if (!lightbox.isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") closeLightbox();
+      if (e.key === "ArrowRight") nextPhoto();
+      if (e.key === "ArrowLeft") prevPhoto();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [lightbox.isOpen, lightbox.photos.length]);
+
+
 
   const [reportData, setReportData] = useState({
     photos: [],
@@ -519,7 +578,7 @@ export default function IncidentReporterApp() {
   if (!isAuthReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">Cargando⬦</p>
+        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">Cargando...</p>
       </div>
     )
   }
@@ -628,33 +687,64 @@ export default function IncidentReporterApp() {
                 </p>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {(r.photos || []).map((url, i) => (
-                    <a key={i} href={url} target="_blank" rel="noreferrer">
-                      <img className="w-20 h-20 object-cover rounded" src={url} loading="lazy" alt={`Evidencia ${i+1}`} />
-                    </a>
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => openLightbox(r.photos, i, r.locationText || "Evidencias")}
+                      className="relative group w-20 h-20 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 hover:opacity-95 transition-all"
+                      title={`Ver foto ${i + 1} en tamaño completo`}
+                    >
+                      <img
+                        className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-110"
+                        src={url}
+                        loading="lazy"
+                        alt={`Evidencia ${i + 1}`}
+                      />
+                      <div className="absolute inset-0 bg-black/35 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <svg className="w-5 h-5 text-white drop-shadow" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                        </svg>
+                      </div>
+                      <span className="absolute bottom-1 right-1 bg-black/60 text-white text-[10px] font-semibold px-1 rounded">
+                        {i + 1}/{r.photos.length}
+                      </span>
+                    </button>
                   ))}
                   {r.video && (
-                    <a href={r.video} target="_blank" rel="noreferrer">
-                      <video className="w-20 h-20 object-cover rounded" src={r.video} controls />
-                    </a>
+                    <div className="relative w-20 h-20 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 shadow-sm bg-black">
+                      <video className="w-full h-full object-cover" src={r.video} controls />
+                    </div>
                   )}
                 </div>
                 {r.locationText && (
-                  <p className="text-sm text-gray-600 dark:text-gray-300">�x� {r.locationText}</p>
+                  <div className="flex items-start gap-1.5 text-sm text-gray-700 dark:text-gray-200 mb-2">
+                    <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <span className="font-medium">{r.locationText}</span>
+                  </div>
                 )}
 
                 {r.infractor && (
-                  <p className="text-sm text-red-600 dark:text-red-400">
-                    �xa� Infractor: {r.infractor}
-                  </p>
+                  <div className="flex items-center gap-1.5 text-sm text-red-700 dark:text-red-300 font-semibold mb-2 bg-red-50 dark:bg-red-950/40 px-2.5 py-1.5 rounded-lg border border-red-200 dark:border-red-900/60">
+                    <svg className="w-4 h-4 text-red-600 dark:text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <span>Infractor: {r.infractor}</span>
+                  </div>
                 )}
                 {r.latitude != null && r.longitude != null && (
                   <a
-                    className="text-sm text-blue-600 dark:text-blue-400 underline mb-4"
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 mb-3 hover:underline"
                     target="_blank"
                     rel="noreferrer"
                     href={`https://www.google.com/maps/search/?api=1&query=${r.latitude},${r.longitude}`}
                   >
-                    Ver en mapa
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                    <span>Ver en mapa ({r.latitude.toFixed(4)}, {r.longitude.toFixed(4)})</span>
                   </a>
                 )}
                 <div className="mt-auto flex flex-wrap gap-2">
@@ -792,7 +882,7 @@ export default function IncidentReporterApp() {
                     }
                     className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                   >
-                    �S"
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
               ))}
@@ -832,9 +922,12 @@ export default function IncidentReporterApp() {
                   <button
                     type="button"
                     onClick={() => setReportData((p) => ({ ...p, video: null }))}
-                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 flex items-center p-0.5"
+                    aria-label="Eliminar video"
                   >
-                    �S"
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -878,7 +971,7 @@ export default function IncidentReporterApp() {
                 disabled={isLocationLoading}
                 className="btn bg-green-600 hover:bg-green-700 text-white rounded-full"
               >
-                {isLocationLoading ? "Obteniendo⬦" : "Obtener ubicación"}
+                {isLocationLoading ? "Obteniendo..." : "Obtener ubicación"}
               </button>
               {reportData.latitude != null && reportData.longitude != null && (
                 <span className="text-sm text-gray-600 dark:text-gray-300">
@@ -898,7 +991,7 @@ export default function IncidentReporterApp() {
               onChange={(e) =>
                 setReportData((p) => ({ ...p, observations: e.target.value }))
               }
-              placeholder="Describe el incidente⬦"
+              placeholder="Describe el incidente..."
               className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
@@ -908,7 +1001,7 @@ export default function IncidentReporterApp() {
             disabled={isSubmitting}
             className="btn btn-primary w-full py-3 rounded-2xl disabled:opacity-60"
           >
-            {isSubmitting ? "Enviando⬦" : "Enviar reporte"}
+            {isSubmitting ? "Enviando..." : "Enviar reporte"}
           </button>
         </form>
       </div>
@@ -952,6 +1045,230 @@ export default function IncidentReporterApp() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      
+
+      {/* Modal / Pasarela de Fotos (Lightbox) */}
+      {lightbox.isOpen && lightbox.photos.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col justify-between items-center p-3 sm:p-6"
+          onClick={closeLightbox}
+          role="dialog"
+          aria-modal="true"
+        >
+          {/* Barra superior */}
+          <div
+            className="w-full flex items-center justify-between text-white py-2 px-3 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <span className="bg-white/20 text-white font-medium text-xs sm:text-sm px-3 py-1 rounded-full backdrop-blur-md">
+                Foto {lightbox.currentIndex + 1} de {lightbox.photos.length}
+              </span>
+              {lightbox.title && (
+                <span className="text-gray-300 text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md hidden xs:inline">
+                  {lightbox.title}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={closeLightbox}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors focus:outline-none"
+              title="Cerrar (Esc)"
+              aria-label="Cerrar modal"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Contenedor central con la imagen y botones siguiente/anterior */}
+          <div
+            className="relative flex-grow flex items-center justify-center w-full max-h-[75vh] my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Botón Anterior */}
+            {lightbox.photos.length > 1 && (
+              <button
+                type="button"
+                onClick={prevPhoto}
+                className="absolute left-2 sm:left-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
+                title="Foto anterior (Flecha izquierda)"
+                aria-label="Foto anterior"
+              >
+                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+
+            {/* Imagen principal */}
+            <img
+              src={lightbox.photos[lightbox.currentIndex]}
+              alt={`Evidencia ${lightbox.currentIndex + 1}`}
+              className="max-h-[75vh] max-w-[92vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl transition-all duration-200 select-none"
+            />
+
+            {/* Botón Siguiente */}
+            {lightbox.photos.length > 1 && (
+              <button
+                type="button"
+                onClick={nextPhoto}
+                className="absolute right-2 sm:right-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
+                title="Foto siguiente (Flecha derecha)"
+                aria-label="Foto siguiente"
+              >
+                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Barra inferior: Miniaturas y controles */}
+          <div
+            className="w-full flex flex-col items-center gap-2 py-2 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {lightbox.photos.length > 1 && (
+              <div className="flex items-center gap-2 overflow-x-auto p-1 max-w-full">
+                {lightbox.photos.map((photo, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setLightbox((prev) => ({ ...prev, currentIndex: idx }))}
+                    className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden flex-shrink-0 transition-all ${
+                      idx === lightbox.currentIndex
+                        ? "ring-2 ring-indigo-500 scale-105 opacity-100"
+                        : "opacity-50 hover:opacity-80"
+                    }`}
+                  >
+                    <img
+                      src={photo}
+                      alt={`Miniatura ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      
+
+      {/* Modal / Pasarela de Fotos (Lightbox) */}
+      {lightbox.isOpen && lightbox.photos.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col justify-between items-center p-3 sm:p-6"
+          onClick={closeLightbox}
+          role="dialog"
+          aria-modal="true"
+        >
+          {/* Barra superior */}
+          <div
+            className="w-full flex items-center justify-between text-white py-2 px-3 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <span className="bg-white/20 text-white font-medium text-xs sm:text-sm px-3 py-1 rounded-full backdrop-blur-md">
+                Foto {lightbox.currentIndex + 1} de {lightbox.photos.length}
+              </span>
+              {lightbox.title && (
+                <span className="text-gray-300 text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md hidden xs:inline">
+                  {lightbox.title}
+                </span>
+              )}
+            </div>
+
+            <button
+              onClick={closeLightbox}
+              className="p-2 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors focus:outline-none"
+              title="Cerrar (Esc)"
+              aria-label="Cerrar modal"
+            >
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Contenedor central con la imagen y botones siguiente/anterior */}
+          <div
+            className="relative flex-grow flex items-center justify-center w-full max-h-[75vh] my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Botón Anterior */}
+            {lightbox.photos.length > 1 && (
+              <button
+                type="button"
+                onClick={prevPhoto}
+                className="absolute left-2 sm:left-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
+                title="Foto anterior (Flecha izquierda)"
+                aria-label="Foto anterior"
+              >
+                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+
+            {/* Imagen principal */}
+            <img
+              src={lightbox.photos[lightbox.currentIndex]}
+              alt={`Evidencia ${lightbox.currentIndex + 1}`}
+              className="max-h-[75vh] max-w-[92vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl transition-all duration-200 select-none"
+            />
+
+            {/* Botón Siguiente */}
+            {lightbox.photos.length > 1 && (
+              <button
+                type="button"
+                onClick={nextPhoto}
+                className="absolute right-2 sm:right-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
+                title="Foto siguiente (Flecha derecha)"
+                aria-label="Foto siguiente"
+              >
+                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
+
+          {/* Barra inferior: Miniaturas y controles */}
+          <div
+            className="w-full flex flex-col items-center gap-2 py-2 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {lightbox.photos.length > 1 && (
+              <div className="flex items-center gap-2 overflow-x-auto p-1 max-w-full">
+                {lightbox.photos.map((photo, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setLightbox((prev) => ({ ...prev, currentIndex: idx }))}
+                    className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden flex-shrink-0 transition-all ${
+                      idx === lightbox.currentIndex
+                        ? "ring-2 ring-indigo-500 scale-105 opacity-100"
+                        : "opacity-50 hover:opacity-80"
+                    }`}
+                  >
+                    <img
+                      src={photo}
+                      alt={`Miniatura ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
