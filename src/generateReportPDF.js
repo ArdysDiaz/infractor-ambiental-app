@@ -2,7 +2,7 @@ import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 /**
  * generateReportPDF(report)
- * - report: objeto de report con la estructura que ya tienes (id, timestamp, photos[], observations, locationText, latitude, longitude, infractor, video, etc)
+ * - report: objeto de report con la estructura (id, timestamp, photos[], observations, locationText, latitude, longitude, infractor, video, etc)
  *
  * La función genera y descarga el PDF automáticamente.
  */
@@ -88,7 +88,7 @@ async function embedSmartImage(pdfDoc, arrBuf) {
   }
 }
 
-// Añade pie con numero de pagina (Se mantiene por si el contenido desborda)
+// Añade pie con número de página
 function addFooter(page, pageIndex, total, font) {
   const { width } = page.getSize();
   const text = `Página ${pageIndex} de ${total}`;
@@ -103,14 +103,13 @@ function addFooter(page, pageIndex, total, font) {
 
 // Envuelve texto a un ancho máximo
 function wrapText(text, font, size, maxWidth) {
-  const words = text.split(" ");
+  const words = String(text || "").split(" ");
   const lines = [];
   let currentLine = words[0] || "";
 
   for (let i = 1; i < words.length; i++) {
     const word = words[i];
     const proposedLine = currentLine + " " + word;
-    // Usar widthOfTextAtSize, no widthOfText, para medir el ancho
     if (font.widthOfTextAtSize(proposedLine, size) < maxWidth) {
       currentLine = proposedLine;
     } else {
@@ -133,7 +132,7 @@ export async function generateReportPDF(report) {
       observations: report.observations || "No se registraron observaciones.",
       locationText: report.locationText || "Ubicación no especificada.",
       infractor: report.infractor || "Infractor no identificado.",
-      timestamp: report.timestamp ? new Date(report.timestamp).toLocaleString() : "Fecha/Hora no registrada.",
+      timestamp: report.timestamp ? new Date(report.timestamp).toLocaleString("es-CO") : "Fecha/Hora no registrada.",
       photos: Array.isArray(report.photos) ? report.photos : (report.images || []),
       latitude: report.latitude ?? null,
       longitude: report.longitude ?? null,
@@ -158,12 +157,12 @@ export async function generateReportPDF(report) {
       y: 0,
       width,
       height,
-      color: BACKGROUND_COLOR, // Fondo blanco
+      color: BACKGROUND_COLOR,
     });
 
     let cursorY = height - 50; // starting y para el primer logo
 
-    // --- LOGOS Y TÍTULO (SIN FRANJA AZUL) ---
+    // --- LOGOS Y TÍTULO ---
     const logoSize = 50;
 
     // Cargar y comprimir logos
@@ -185,7 +184,7 @@ export async function generateReportPDF(report) {
       if (emb) {
         page.drawImage(emb, {
           x: marginX,
-          y: cursorY - logoSize, // Posición superior izquierda
+          y: cursorY - logoSize,
           width: logoSize,
           height: logoSize,
         });
@@ -196,7 +195,7 @@ export async function generateReportPDF(report) {
       if (emb2) {
         page.drawImage(emb2, {
           x: width - marginX - logoSize,
-          y: cursorY - logoSize, // Posición superior derecha
+          y: cursorY - logoSize,
           width: logoSize,
           height: logoSize,
         });
@@ -211,7 +210,7 @@ export async function generateReportPDF(report) {
       y: cursorY,
       size: 18,
       font: helvBold,
-      color: ACCENT_COLOR, // Color de acento
+      color: ACCENT_COLOR,
     });
     cursorY -= 40; // Mover cursor debajo del título
 
@@ -226,12 +225,11 @@ export async function generateReportPDF(report) {
     cursorY -= 20;
 
     const dataBlockYStart = cursorY;
-    const lh = 15; // Line height (reducido a 15 de 18 para compactar)
-    const colGap = 2; // Espacio entre etiqueta y valor
+    const lh = 15; // Line height
     const labelX1 = marginX; // Columna 1
-    const valueX1 = marginX + 95 + colGap;
+    const valueX1 = marginX + 95 + 2;
     const labelX2 = width / 2 + 20; // Columna 2
-    const valueX2 = labelX2 + 95 + colGap;
+    const valueX2 = labelX2 + 95 + 2;
 
     // --- COLUMNA 1 ---
     let detailY1 = dataBlockYStart;
@@ -239,18 +237,20 @@ export async function generateReportPDF(report) {
     // ID
     detailY1 -= lh;
     page.drawText("ID del Reporte:", { x: labelX1, y: detailY1, size: 10, font: helvBold, color: TEXT_COLOR });
-    page.drawText(data.id, { x: valueX1, y: detailY1, size: 10, font: helv });
+    page.drawText(String(data.id), { x: valueX1, y: detailY1, size: 10, font: helv });
+    
     // Fecha
     detailY1 -= lh;
     page.drawText("Fecha / Hora:", { x: labelX1, y: detailY1, size: 10, font: helvBold, color: TEXT_COLOR });
-    page.drawText(data.timestamp, { x: valueX1, y: detailY1, size: 10, font: helv });
+    page.drawText(String(data.timestamp), { x: valueX1, y: detailY1, size: 10, font: helv });
+    
     // Infractor
     detailY1 -= lh;
     page.drawText("Infractor:", { x: labelX1, y: detailY1, size: 10, font: helvBold, color: TEXT_COLOR });
     const infractorLines = wrapText(data.infractor, helv, 10, width / 2 - valueX1 - 5);
-    for(const line of infractorLines) {
-        page.drawText(line, { x: valueX1, y: detailY1, size: 10, font: helv });
-        detailY1 -= lh;
+    for (const line of infractorLines) {
+      page.drawText(line, { x: valueX1, y: detailY1, size: 10, font: helv });
+      detailY1 -= lh;
     }
     
     // --- COLUMNA 2 ---
@@ -259,24 +259,23 @@ export async function generateReportPDF(report) {
     // Ubicación textual
     detailY2 -= lh;
     page.drawText("Lugar reportado:", { x: labelX2, y: detailY2, size: 10, font: helvBold, color: TEXT_COLOR });
-    // Aquí usamos un tamaño de texto ligeramente menor para evitar que se monte si es largo
     const locationLines = wrapText(data.locationText || "—", helv, 9, width - valueX2 - marginX);
-    let locationCurrentY = detailY2;
-    for(const line of locationLines) {
-        page.drawText(line, { x: valueX2, y: locationCurrentY, size: 9, font: helv });
-        locationCurrentY -= 12; // Un poco menos de interlineado para el texto ajustado
+    for (const line of locationLines) {
+      page.drawText(line, { x: valueX2, y: detailY2, size: 9, font: helv });
+      detailY2 -= 12;
     }
-    detailY2 = locationCurrentY + lh; // Ajustar detailY2 al último punto de texto.
-
     
     // Coordenadas (si existen)
-    if (data.latitude && data.longitude) {
+    if (data.latitude != null && data.longitude != null) {
       detailY2 -= lh;
       page.drawText("Coordenadas:", { x: labelX2, y: detailY2, size: 10, font: helvBold, color: TEXT_COLOR });
-      page.drawText(`Lat: ${data.latitude} · Lng: ${data.longitude}`, { x: valueX2, y: detailY2, size: 10, font: helv });
+      const latStr = typeof data.latitude === "number" ? data.latitude.toFixed(5) : String(data.latitude);
+      const lngStr = typeof data.longitude === "number" ? data.longitude.toFixed(5) : String(data.longitude);
+      page.drawText(`Lat: ${latStr} · Lng: ${lngStr}`, { x: valueX2, y: detailY2, size: 10, font: helv });
+      detailY2 -= lh;
     }
     
-    // 2. Definir el nuevo cursor Y basado en la columna más larga (espacio reducido)
+    // Cursor Y basado en la columna más larga
     const finalDetailY = Math.min(detailY1, detailY2); 
 
     // Línea separadora
@@ -286,7 +285,7 @@ export async function generateReportPDF(report) {
       thickness: 0.5,
       color: ACCENT_COLOR,
     });
-    cursorY = finalDetailY - 25; // Espacio reducido a 10pt (de 25pt)
+    cursorY = finalDetailY - 25;
 
     // --- SECCIÓN DE OBSERVACIONES ---
     page.drawText("DESCRIPCIÓN DEL REPORTE", {
@@ -299,7 +298,6 @@ export async function generateReportPDF(report) {
     cursorY -= 20;
 
     const obsText = data.observations || "No se registraron observaciones.";
-    // Wrap text con espacio para 5pt de padding interno
     const obsLines = wrapText(obsText, helv, 10, contentW - 10);
     let obsLineY = cursorY;
     const obsLineHeight = 13;
@@ -308,25 +306,22 @@ export async function generateReportPDF(report) {
 
     // Dibujar el rectángulo de fondo
     page.drawRectangle({
-        x: marginX,
-        y: obsLineY - boxHeight,
-        width: contentW,
-        height: boxHeight,
-        color: LIGHT_GREY, // Fondo gris muy suave
-        borderWidth: 0.5,
-        borderColor: rgb(0.9, 0.9, 0.9) // Borde muy claro
-    })
+      x: marginX,
+      y: obsLineY - boxHeight,
+      width: contentW,
+      height: boxHeight,
+      color: LIGHT_GREY,
+      borderWidth: 0.5,
+      borderColor: rgb(0.9, 0.9, 0.9)
+    });
 
     for (const ln of obsLines) {
-      // Dibujar el texto 5pt más adentro para padding visual
       page.drawText(ln, { x: marginX + 5, y: obsLineY - 10, size: 10, font: helv, color: TEXT_COLOR });
       obsLineY -= obsLineHeight;
     }
-    cursorY = obsLineY - 30; // Espacio reducido a 15pt antes del título de evidencias
+    cursorY = obsLineY - 30;
 
-    // --- EVIDENCIAS FOTOGRÁFICAS (EN LA MISMA PÁGINA) ---
-
-    // Título de Evidencias
+    // --- EVIDENCIAS FOTOGRÁFICAS ---
     page.drawText("EVIDENCIAS FOTOGRÁFICAS", { 
       x: marginX, 
       y: cursorY, 
@@ -338,10 +333,10 @@ export async function generateReportPDF(report) {
     
     // Configuración de la cuadrícula
     const numCols = 3;
-    colGap == 10;
-    const rowGap = 15; // Espacio entre filas reducido
+    const photoColGap = 10;
+    const rowGap = 15;
     const photoCaptionH = 15;
-    const colW = (contentW - colGap * (numCols - 1)) / numCols;
+    const colW = (contentW - photoColGap * (numCols - 1)) / numCols;
     let px = marginX;
     let py = cursorY; 
     let col = 0;
@@ -358,17 +353,15 @@ export async function generateReportPDF(report) {
 
         // calculamos escala para que encaje en colW
         const imgW = colW;
-        // La altura máxima se limita para prevenir desbordes
         let imgH = (img.height / img.width) * imgW;
-        const maxHeight = 120; // Altura máxima REDUCIDA para maximizar espacio
+        const maxHeight = 120;
         if (imgH > maxHeight) {
-            imgH = maxHeight;
+          imgH = maxHeight;
         }
 
         // Revisar si hay espacio para la foto y su pie de página (Margen inferior: 40pt)
         if (py - imgH - photoCaptionH < 40) { 
-          // NO HAY ESPACIO. Añadir nota y romper el bucle para mantener el PDF en 1 página.
-          if (i > 0) { // Solo si ya se ha dibujado al menos una foto
+          if (i > 0) {
             page.drawText(`... ${data.photos.length - i} evidencias adicionales omitidas por límite de espacio en una sola página.`, { 
               x: marginX, 
               y: py - 10, 
@@ -377,7 +370,7 @@ export async function generateReportPDF(report) {
               color: TEXT_COLOR 
             });
           } else {
-             page.drawText("No hay espacio suficiente para mostrar evidencias en la página.", { 
+            page.drawText("No hay espacio suficiente para mostrar evidencias en la página.", { 
               x: marginX, 
               y: py - 10, 
               size: 10, 
@@ -385,7 +378,7 @@ export async function generateReportPDF(report) {
               color: TEXT_COLOR 
             });
           }
-          py = 40; // Asegurar que el cursor apunte al final de la nota para el video o fin de página.
+          py = 40;
           break; 
         }
 
@@ -397,14 +390,14 @@ export async function generateReportPDF(report) {
           height: imgH,
         });
 
-        // Dibuja borde (opcional, para separar visualmente)
+        // Borde
         page.drawRectangle({
-            x: px - 1,
-            y: py - imgH - 1,
-            width: imgW + 2,
-            height: imgH + 2,
-            borderWidth: 1,
-            borderColor: rgb(0.8, 0.8, 0.8)
+          x: px - 1,
+          y: py - imgH - 1,
+          width: imgW + 2,
+          height: imgH + 2,
+          borderWidth: 1,
+          borderColor: rgb(0.8, 0.8, 0.8)
         });
 
         // Caption
@@ -420,12 +413,11 @@ export async function generateReportPDF(report) {
         // Avanzar columna/fila
         col++;
         if (col < numCols) {
-          px += colW + colGap;
+          px += colW + photoColGap;
         } else {
-          // Nueva fila
           col = 0;
           px = marginX;
-          py -= imgH + photoCaptionH + rowGap; // Mover cursor hacia abajo
+          py -= imgH + photoCaptionH + rowGap;
         }
 
       } catch (err) {
@@ -433,56 +425,52 @@ export async function generateReportPDF(report) {
       }
     }
     
-    cursorY = py; // Actualizar cursorY para la siguiente sección
+    cursorY = py;
 
     // --- REFERENCIA DE VIDEO (Si existe) ---
-    if (data.video && cursorY > 100) { // Comprobar si hay espacio suficiente para el bloque de video
-        cursorY -= 20;
+    if (data.video && cursorY > 80) {
+      cursorY -= 25;
 
-        page.drawText("ENLACE DE EVIDENCIA DE VIDEO", { 
-            x: marginX, 
-            y: cursorY, 
-            size: 12, // Título ligeramente menor
-            font: helvBold, 
-            color: ACCENT_COLOR 
-        });
-        cursorY -= 15;
-        
-        page.drawText("El reporte incluye una referencia de video. Acceda al enlace para visualizar:", { 
-            x: marginX, 
-            y: cursorY, 
-            size: 9, 
-            font: helv, 
-            color: TEXT_COLOR 
-        });
-        cursorY -= 20;
-        
-        // Agregar un rectángulo de fondo para destacarlo
-        page.drawRectangle({
-             x: marginX,
-             y: cursorY - 3,
-             width: contentW,
-             height: 15,
-             color: LIGHT_GREY
-        });
-        
-        // Dibuja el enlace (Azul para simular hipervínculo)
-        page.drawText(data.video, { 
-            x: marginX + 5, // 5pt de padding
-            y: cursorY, 
-            size: 10, 
-            font: helv, 
-            color: rgb(0, 0, 0.6) 
-        });
+      page.drawText("ENLACE DE EVIDENCIA DE VIDEO", { 
+        x: marginX, 
+        y: cursorY, 
+        size: 12, 
+        font: helvBold, 
+        color: ACCENT_COLOR 
+      });
+      cursorY -= 15;
+      
+      page.drawText("El reporte incluye una referencia de video. Acceda al enlace para visualizar:", { 
+        x: marginX, 
+        y: cursorY, 
+        size: 9, 
+        font: helv, 
+        color: TEXT_COLOR 
+      });
+      cursorY -= 20;
+      
+      page.drawRectangle({
+        x: marginX,
+        y: cursorY - 3,
+        width: contentW,
+        height: 15,
+        color: LIGHT_GREY
+      });
+      
+      page.drawText(String(data.video), { 
+        x: marginX + 5,
+        y: cursorY, 
+        size: 10, 
+        font: helv, 
+        color: rgb(0, 0, 0.6) 
+      });
     }
 
-    // --- PIE DE PÁGINA / NÚMERO DE PÁGINA ---
-    // Usamos el pie de página para darle un toque final (1 de 1)
+    // --- PIE DE PÁGINA ---
     addFooter(page, 1, 1, helv);
 
     // --- GENERAR Y DESCARGAR ---
     const pdfBytes = await pdfDoc.save();
-    // descarga automática en navegador
     const blob = new Blob([pdfBytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -497,7 +485,6 @@ export async function generateReportPDF(report) {
     return true;
   } catch (e) {
     console.error("Error generando PDF:", e);
-    // puedes lanzar error o mostrar notificación según prefieras
     throw e;
   }
 }

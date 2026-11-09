@@ -12,8 +12,7 @@ import {
   where
 } from "firebase/firestore"
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
-import 'jspdf-autotable'
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useRegisterSW } from 'virtual:pwa-register/react'
 import { auth, db, storage } from "./firebase"
 import { generateReportPDF } from "./generateReportPDF"
@@ -23,6 +22,13 @@ const REPORTS_PER_PAGE = 9;
 
 // Estados posibles
 const STATUS = ["Pendiente", "Visto", "Solucionado"]
+
+// Administradores autorizados
+const ADMIN_EMAILS = [
+  "semader@quibdo-choco.gov.co",
+  "frankcorpa54@gmail.com",
+  "viasneyiris20@gmail.com"
+];
 
 // Componente para manejar la actualización de la PWA
 function PwaUpdater() {
@@ -61,7 +67,7 @@ function PwaUpdater() {
             <button
               className="p-2 leading-none rounded-full hover:bg-gray-700 transition-colors"
               aria-label="Cerrar"
-              onClick={() => close()}>✕</button>
+              onClick={() => close()}>�S"</button>
           </div>
         </div>
       }
@@ -197,7 +203,11 @@ export default function IncidentReporterApp() {
         if (user) {
           // Si hay un usuario, verificar si es admin
           const idTokenResult = await user.getIdTokenResult();
-          if (idTokenResult.claims.admin) {
+          const isUserAdmin = Boolean(
+            idTokenResult.claims.admin ||
+            (user.email && ADMIN_EMAILS.includes(user.email.toLowerCase()))
+          );
+          if (isUserAdmin) {
             setIsAdmin(true);
             setView("admin");
           } else {
@@ -225,24 +235,25 @@ export default function IncidentReporterApp() {
       setReports([]); // Limpiar reportes al cambiar de filtro
       setLastVisible(null);
       setHasMore(true);
-      loadMoreReports(true); // Cargar la primera página
+      loadMoreReports(true, filterStatus);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, filterStatus]);
 
-  const loadMoreReports = async (isInitialLoad = false) => {
-    if (!hasMore || isLoadingMore) return;
+  const loadMoreReports = useCallback(async (isInitialLoad = false, statusOverride = null) => {
+    if ((!isInitialLoad && !hasMore) || isLoadingMore) return;
 
     setIsLoadingMore(true);
     setError(null);
 
+    const activeStatus = statusOverride !== null ? statusOverride : filterStatus;
+    const reportsRef = collection(db, "reports");
+
     try {
-      // Construir la consulta base
-      let q;
-      const reportsRef = collection(db, "reports");
       const constraints = [orderBy("timestamp", "desc")];
 
-      if (filterStatus !== "Todos") {
-        constraints.push(where("status", "==", filterStatus));
+      if (activeStatus !== "Todos") {
+        constraints.push(where("status", "==", activeStatus));
       }
 
       if (lastVisible && !isInitialLoad) {
@@ -251,33 +262,46 @@ export default function IncidentReporterApp() {
 
       constraints.push(limit(REPORTS_PER_PAGE));
 
-      q = query(reportsRef, ...constraints);
-
+      const q = query(reportsRef, ...constraints);
       const documentSnapshots = await getDocs(q);
 
       const newReports = documentSnapshots.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const lastDoc = documentSnapshots.docs[documentSnapshots.docs.length - 1];
+      const lastDoc = documentSnapshots.docs[documentSnapshots.docs.length - 1] || null;
 
       setReports((prevReports) => isInitialLoad ? newReports : [...prevReports, ...newReports]);
       setLastVisible(lastDoc);
-
-      if (documentSnapshots.docs.length < REPORTS_PER_PAGE) {
-        setHasMore(false);
-      }
-
+      setHasMore(documentSnapshots.docs.length >= REPORTS_PER_PAGE);
     } catch (e) {
       console.error("Error cargando más reportes:", e);
+      // Fallback si no está creado el índice compuesto en Firestore para status + timestamp
+      if (activeStatus !== "Todos" && (e?.code === 'failed-precondition' || (e?.message && e.message.includes('index')))) {
+        try {
+          const fallbackConstraints = [orderBy("timestamp", "desc")];
+          if (lastVisible && !isInitialLoad) {
+            fallbackConstraints.push(startAfter(lastVisible));
+          }
+          fallbackConstraints.push(limit(50));
+          const fallbackSnap = await getDocs(query(reportsRef, ...fallbackConstraints));
+          const allDocs = fallbackSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          const matched = allDocs.filter((r) => r.status === activeStatus);
+          const lastDoc = fallbackSnap.docs[fallbackSnap.docs.length - 1] || null;
+          setReports((prevReports) => isInitialLoad ? matched : [...prevReports, ...matched]);
+          setLastVisible(lastDoc);
+          setHasMore(false);
+          return;
+        } catch (fallbackErr) {
+          console.error("Error en fallback de reportes:", fallbackErr);
+        }
+      }
       setError("No se pudieron cargar más reportes.");
     } finally {
       setIsLoadingMore(false);
     }
-  };
-
+  }, [filterStatus, hasMore, isLoadingMore, lastVisible]);
 
   const filteredReports = useMemo(() => {
-    // El filtrado ahora se hace en la consulta a Firestore, así que solo devolvemos los reportes.
     return reports;
-  }, [reports, filterStatus])
+  }, [reports]);
 
   // Ubicación
   const handleLocationGet = async () => {
@@ -358,17 +382,16 @@ export default function IncidentReporterApp() {
 
     setIsSubmitting(true)
     try {
-      // 1) Subir media
-      const photoUrls = []
-      for (const file of reportData.photos) {
+      // 1) Subir media en paralelo
+      const photoPromises = reportData.photos.map(async (file) => {
         const r = ref(
           storage,
           `users/${auth.currentUser.uid}/media/${Date.now()}_${file.name}`
         )
         const snap = await uploadBytes(r, file)
-        const url = await getDownloadURL(snap.ref)
-        photoUrls.push(url)
-      }
+        return getDownloadURL(snap.ref)
+      })
+      const photoUrls = await Promise.all(photoPromises)
 
       let videoUrl = null
       if (reportData.video) {
@@ -422,8 +445,13 @@ export default function IncidentReporterApp() {
       const userCredential = await signInWithEmailAndPassword(auth, username, password);
       const idTokenResult = await userCredential.user.getIdTokenResult();
       
-      // Verificar si el usuario tiene el claim de admin
-      if (idTokenResult.claims.admin) {
+      const isUserAdmin = Boolean(
+        idTokenResult.claims.admin ||
+        (userCredential.user.email && ADMIN_EMAILS.includes(userCredential.user.email.toLowerCase()))
+      );
+
+      // Verificar si el usuario tiene el claim de admin o email autorizado
+      if (isUserAdmin) {
         setIsAdmin(true);
         setView("admin");
       } else {
@@ -491,7 +519,7 @@ export default function IncidentReporterApp() {
   if (!isAuthReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-900">
-        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">Cargando…</p>
+        <p className="text-lg font-semibold text-gray-800 dark:text-gray-100">Cargando⬦</p>
       </div>
     )
   }
@@ -611,15 +639,15 @@ export default function IncidentReporterApp() {
                   )}
                 </div>
                 {r.locationText && (
-                  <p className="text-sm text-gray-600 dark:text-gray-300">📍 {r.locationText}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-300">�x� {r.locationText}</p>
                 )}
 
                 {r.infractor && (
                   <p className="text-sm text-red-600 dark:text-red-400">
-                    🚨 Infractor: {r.infractor}
+                    �xa� Infractor: {r.infractor}
                   </p>
                 )}
-                {r.latitude && r.longitude && (
+                {r.latitude != null && r.longitude != null && (
                   <a
                     className="text-sm text-blue-600 dark:text-blue-400 underline mb-4"
                     target="_blank"
@@ -764,7 +792,7 @@ export default function IncidentReporterApp() {
                     }
                     className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                   >
-                    ✕
+                    �S"
                   </button>
                 </div>
               ))}
@@ -806,7 +834,7 @@ export default function IncidentReporterApp() {
                     onClick={() => setReportData((p) => ({ ...p, video: null }))}
                     className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
                   >
-                    ✕
+                    �S"
                   </button>
                 </div>
               </div>
@@ -850,9 +878,9 @@ export default function IncidentReporterApp() {
                 disabled={isLocationLoading}
                 className="btn bg-green-600 hover:bg-green-700 text-white rounded-full"
               >
-                {isLocationLoading ? "Obteniendo…" : "Obtener ubicación"}
+                {isLocationLoading ? "Obteniendo⬦" : "Obtener ubicación"}
               </button>
-              {reportData.latitude && reportData.longitude && (
+              {reportData.latitude != null && reportData.longitude != null && (
                 <span className="text-sm text-gray-600 dark:text-gray-300">
                   Lat: {reportData.latitude.toFixed(4)} · Lon: {reportData.longitude.toFixed(4)}
                 </span>
@@ -870,7 +898,7 @@ export default function IncidentReporterApp() {
               onChange={(e) =>
                 setReportData((p) => ({ ...p, observations: e.target.value }))
               }
-              placeholder="Describe el incidente…"
+              placeholder="Describe el incidente⬦"
               className="w-full border rounded-lg p-2 bg-white dark:bg-gray-700 dark:text-gray-100"
             />
           </div>
@@ -880,7 +908,7 @@ export default function IncidentReporterApp() {
             disabled={isSubmitting}
             className="btn btn-primary w-full py-3 rounded-2xl disabled:opacity-60"
           >
-            {isSubmitting ? "Enviando…" : "Enviar reporte"}
+            {isSubmitting ? "Enviando⬦" : "Enviar reporte"}
           </button>
         </form>
       </div>
