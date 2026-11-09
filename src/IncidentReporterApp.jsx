@@ -309,50 +309,42 @@ export default function IncidentReporterApp() {
     const reportsRef = collection(db, "reports");
 
     try {
-      const constraints = [orderBy("timestamp", "desc")];
-
       if (activeStatus !== "Todos") {
-        constraints.push(where("status", "==", activeStatus));
-      }
+        // Filtrar por status usando el índice simple nativo de Firestore (0 requerimientos de índice compuesto)
+        // y ordenar en memoria por timestamp descendente
+        const q = query(reportsRef, where("status", "==", activeStatus), limit(50));
+        const documentSnapshots = await getDocs(q);
 
-      if (lastVisible && !isInitialLoad) {
-        constraints.push(startAfter(lastVisible));
-      }
+        const allFiltered = documentSnapshots.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 
-      constraints.push(limit(REPORTS_PER_PAGE));
+        setReports(allFiltered);
+        setLastVisible(null);
+        setHasMore(false);
+      } else {
+        // Para "Todos": ordenamos por timestamp descendente (índice simple automático)
+        const constraints = [orderBy("timestamp", "desc")];
 
-      const q = query(reportsRef, ...constraints);
-      const documentSnapshots = await getDocs(q);
-
-      const newReports = documentSnapshots.docs.map((d) => ({ id: d.id, ...d.data() }));
-      const lastDoc = documentSnapshots.docs[documentSnapshots.docs.length - 1] || null;
-
-      setReports((prevReports) => isInitialLoad ? newReports : [...prevReports, ...newReports]);
-      setLastVisible(lastDoc);
-      setHasMore(documentSnapshots.docs.length >= REPORTS_PER_PAGE);
-    } catch (e) {
-      console.error("Error cargando más reportes:", e);
-      // Fallback si no está creado el índice compuesto en Firestore para status + timestamp
-      if (activeStatus !== "Todos" && (e?.code === 'failed-precondition' || (e?.message && e.message.includes('index')))) {
-        try {
-          const fallbackConstraints = [orderBy("timestamp", "desc")];
-          if (lastVisible && !isInitialLoad) {
-            fallbackConstraints.push(startAfter(lastVisible));
-          }
-          fallbackConstraints.push(limit(50));
-          const fallbackSnap = await getDocs(query(reportsRef, ...fallbackConstraints));
-          const allDocs = fallbackSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          const matched = allDocs.filter((r) => r.status === activeStatus);
-          const lastDoc = fallbackSnap.docs[fallbackSnap.docs.length - 1] || null;
-          setReports((prevReports) => isInitialLoad ? matched : [...prevReports, ...matched]);
-          setLastVisible(lastDoc);
-          setHasMore(false);
-          return;
-        } catch (fallbackErr) {
-          console.error("Error en fallback de reportes:", fallbackErr);
+        if (lastVisible && !isInitialLoad) {
+          constraints.push(startAfter(lastVisible));
         }
+
+        constraints.push(limit(REPORTS_PER_PAGE));
+
+        const q = query(reportsRef, ...constraints);
+        const documentSnapshots = await getDocs(q);
+
+        const newReports = documentSnapshots.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const lastDoc = documentSnapshots.docs[documentSnapshots.docs.length - 1] || null;
+
+        setReports((prevReports) => isInitialLoad ? newReports : [...prevReports, ...newReports]);
+        setLastVisible(lastDoc);
+        setHasMore(documentSnapshots.docs.length >= REPORTS_PER_PAGE);
       }
-      setError("No se pudieron cargar más reportes.");
+    } catch (e) {
+      console.error("Error cargando reportes:", e);
+      setError("No se pudieron cargar los reportes.");
     } finally {
       setIsLoadingMore(false);
     }
@@ -551,6 +543,137 @@ export default function IncidentReporterApp() {
     }
   };
 
+
+
+  // Render del visor modal de fotos (accesible tanto en admin como en usuario)
+  const renderLightboxModal = () => {
+    if (!lightbox.isOpen || !lightbox.photos || lightbox.photos.length === 0) return null;
+
+    const currentPhotoUrl = lightbox.photos[lightbox.currentIndex];
+
+    return (
+      <div
+        className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col justify-between items-center p-3 sm:p-6"
+        onClick={closeLightbox}
+        role="dialog"
+        aria-modal="true"
+      >
+        {/* Barra superior */}
+        <div
+          className="w-full flex items-center justify-between text-white py-2 px-3 z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center gap-3">
+            <span className="bg-white/20 text-white font-medium text-xs sm:text-sm px-3 py-1 rounded-full backdrop-blur-md">
+              Foto {lightbox.currentIndex + 1} de {lightbox.photos.length}
+            </span>
+            {lightbox.title && (
+              <span className="text-gray-300 text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md">
+                {lightbox.title}
+              </span>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={closeLightbox}
+            className="p-2 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors focus:outline-none"
+            title="Cerrar (Esc)"
+            aria-label="Cerrar visor"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Contenedor central con la imagen y botones siguiente/anterior */}
+        <div
+          className="relative flex-grow flex items-center justify-center w-full max-h-[75vh] my-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Botón Anterior */}
+          {lightbox.photos.length > 1 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                prevPhoto();
+              }}
+              className="absolute left-2 sm:left-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
+              title="Foto anterior (Flecha izquierda)"
+              aria-label="Foto anterior"
+            >
+              <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+
+          {/* Imagen principal */}
+          {currentPhotoUrl ? (
+            <img
+              src={currentPhotoUrl}
+              alt={`Evidencia ${lightbox.currentIndex + 1}`}
+              className="max-h-[75vh] max-w-[92vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl transition-all duration-200 select-none bg-black/30"
+            />
+          ) : (
+            <p className="text-white text-sm">No se pudo cargar la imagen.</p>
+          )}
+
+          {/* Botón Siguiente */}
+          {lightbox.photos.length > 1 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                nextPhoto();
+              }}
+              className="absolute right-2 sm:right-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
+              title="Foto siguiente (Flecha derecha)"
+              aria-label="Foto siguiente"
+            >
+              <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
+        </div>
+
+        {/* Barra inferior: Miniaturas y controles */}
+        <div
+          className="w-full flex flex-col items-center gap-2 py-2 z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {lightbox.photos.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto p-1 max-w-full">
+              {lightbox.photos.map((photo, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setLightbox((prev) => ({ ...prev, currentIndex: idx }));
+                  }}
+                  className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden flex-shrink-0 transition-all ${
+                    idx === lightbox.currentIndex
+                      ? "ring-2 ring-indigo-500 scale-105 opacity-100"
+                      : "opacity-50 hover:opacity-80"
+                  }`}
+                >
+                  <img
+                    src={photo}
+                    alt={`Miniatura ${idx + 1}`}
+                    className="w-full h-full object-cover"
+                  />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   async function checkPermission(name) {
     try {
@@ -786,6 +909,9 @@ export default function IncidentReporterApp() {
             </button>
           </div>
         )}
+
+        {/* Modal / Pasarela de Fotos en Vista Administrador */}
+        {renderLightboxModal()}
       </div>
     )
   }
@@ -1051,227 +1177,8 @@ export default function IncidentReporterApp() {
 
       
 
-      {/* Modal / Pasarela de Fotos (Lightbox) */}
-      {lightbox.isOpen && lightbox.photos.length > 0 && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col justify-between items-center p-3 sm:p-6"
-          onClick={closeLightbox}
-          role="dialog"
-          aria-modal="true"
-        >
-          {/* Barra superior */}
-          <div
-            className="w-full flex items-center justify-between text-white py-2 px-3 z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3">
-              <span className="bg-white/20 text-white font-medium text-xs sm:text-sm px-3 py-1 rounded-full backdrop-blur-md">
-                Foto {lightbox.currentIndex + 1} de {lightbox.photos.length}
-              </span>
-              {lightbox.title && (
-                <span className="text-gray-300 text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md hidden xs:inline">
-                  {lightbox.title}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={closeLightbox}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors focus:outline-none"
-              title="Cerrar (Esc)"
-              aria-label="Cerrar modal"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Contenedor central con la imagen y botones siguiente/anterior */}
-          <div
-            className="relative flex-grow flex items-center justify-center w-full max-h-[75vh] my-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Botón Anterior */}
-            {lightbox.photos.length > 1 && (
-              <button
-                type="button"
-                onClick={prevPhoto}
-                className="absolute left-2 sm:left-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
-                title="Foto anterior (Flecha izquierda)"
-                aria-label="Foto anterior"
-              >
-                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            )}
-
-            {/* Imagen principal */}
-            <img
-              src={lightbox.photos[lightbox.currentIndex]}
-              alt={`Evidencia ${lightbox.currentIndex + 1}`}
-              className="max-h-[75vh] max-w-[92vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl transition-all duration-200 select-none"
-            />
-
-            {/* Botón Siguiente */}
-            {lightbox.photos.length > 1 && (
-              <button
-                type="button"
-                onClick={nextPhoto}
-                className="absolute right-2 sm:right-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
-                title="Foto siguiente (Flecha derecha)"
-                aria-label="Foto siguiente"
-              >
-                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            )}
-          </div>
-
-          {/* Barra inferior: Miniaturas y controles */}
-          <div
-            className="w-full flex flex-col items-center gap-2 py-2 z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {lightbox.photos.length > 1 && (
-              <div className="flex items-center gap-2 overflow-x-auto p-1 max-w-full">
-                {lightbox.photos.map((photo, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setLightbox((prev) => ({ ...prev, currentIndex: idx }))}
-                    className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden flex-shrink-0 transition-all ${
-                      idx === lightbox.currentIndex
-                        ? "ring-2 ring-indigo-500 scale-105 opacity-100"
-                        : "opacity-50 hover:opacity-80"
-                    }`}
-                  >
-                    <img
-                      src={photo}
-                      alt={`Miniatura ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      
-
-      {/* Modal / Pasarela de Fotos (Lightbox) */}
-      {lightbox.isOpen && lightbox.photos.length > 0 && (
-        <div
-          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex flex-col justify-between items-center p-3 sm:p-6"
-          onClick={closeLightbox}
-          role="dialog"
-          aria-modal="true"
-        >
-          {/* Barra superior */}
-          <div
-            className="w-full flex items-center justify-between text-white py-2 px-3 z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3">
-              <span className="bg-white/20 text-white font-medium text-xs sm:text-sm px-3 py-1 rounded-full backdrop-blur-md">
-                Foto {lightbox.currentIndex + 1} de {lightbox.photos.length}
-              </span>
-              {lightbox.title && (
-                <span className="text-gray-300 text-xs sm:text-sm truncate max-w-[200px] sm:max-w-md hidden xs:inline">
-                  {lightbox.title}
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={closeLightbox}
-              className="p-2 rounded-full bg-white/10 hover:bg-white/25 text-white transition-colors focus:outline-none"
-              title="Cerrar (Esc)"
-              aria-label="Cerrar modal"
-            >
-              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Contenedor central con la imagen y botones siguiente/anterior */}
-          <div
-            className="relative flex-grow flex items-center justify-center w-full max-h-[75vh] my-auto"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Botón Anterior */}
-            {lightbox.photos.length > 1 && (
-              <button
-                type="button"
-                onClick={prevPhoto}
-                className="absolute left-2 sm:left-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
-                title="Foto anterior (Flecha izquierda)"
-                aria-label="Foto anterior"
-              >
-                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-            )}
-
-            {/* Imagen principal */}
-            <img
-              src={lightbox.photos[lightbox.currentIndex]}
-              alt={`Evidencia ${lightbox.currentIndex + 1}`}
-              className="max-h-[75vh] max-w-[92vw] sm:max-w-[85vw] object-contain rounded-xl shadow-2xl transition-all duration-200 select-none"
-            />
-
-            {/* Botón Siguiente */}
-            {lightbox.photos.length > 1 && (
-              <button
-                type="button"
-                onClick={nextPhoto}
-                className="absolute right-2 sm:right-4 z-20 p-2 sm:p-3 rounded-full bg-black/60 hover:bg-black/85 text-white shadow-xl backdrop-blur-sm transition-transform active:scale-95 focus:outline-none"
-                title="Foto siguiente (Flecha derecha)"
-                aria-label="Foto siguiente"
-              >
-                <svg className="w-6 h-6 sm:w-8 sm:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            )}
-          </div>
-
-          {/* Barra inferior: Miniaturas y controles */}
-          <div
-            className="w-full flex flex-col items-center gap-2 py-2 z-10"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {lightbox.photos.length > 1 && (
-              <div className="flex items-center gap-2 overflow-x-auto p-1 max-w-full">
-                {lightbox.photos.map((photo, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => setLightbox((prev) => ({ ...prev, currentIndex: idx }))}
-                    className={`relative w-12 h-12 sm:w-14 sm:h-14 rounded-lg overflow-hidden flex-shrink-0 transition-all ${
-                      idx === lightbox.currentIndex
-                        ? "ring-2 ring-indigo-500 scale-105 opacity-100"
-                        : "opacity-50 hover:opacity-80"
-                    }`}
-                  >
-                    <img
-                      src={photo}
-                      alt={`Miniatura ${idx + 1}`}
-                      className="w-full h-full object-cover"
-                    />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Modal / Pasarela de Fotos en Vista Usuario */}
+      {renderLightboxModal()}
 
       {/* Componente para gestionar actualizaciones de la PWA */}
       <PwaUpdater />
